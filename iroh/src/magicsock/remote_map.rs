@@ -2,20 +2,22 @@ use std::{
     collections::{BTreeSet, hash_map},
     hash::Hash,
     net::{IpAddr, SocketAddr},
+    ops::DerefMut,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use iroh_base::{EndpointId, RelayUrl};
+use iroh_base::{EndpointAddr, EndpointId, RelayUrl};
+use n0_future::task::JoinSet;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{debug, error, warn};
 
 pub(crate) use self::remote_state::PathsWatcher;
+use self::remote_state::RemoteStateActor;
 pub(super) use self::remote_state::RemoteStateMessage;
 pub use self::remote_state::{PathInfo, PathInfoList};
-use self::remote_state::{RemoteStateActor, RemoteStateHandle};
 use super::{
     DirectAddr, DiscoState, MagicsockMetrics,
     mapped_addrs::{AddrMap, EndpointIdMappedAddr, RelayMappedAddr},
@@ -45,7 +47,7 @@ pub(crate) struct RemoteMap {
     // State we keep about remote endpoints.
     //
     /// The actors tracking each remote endpoint.
-    actor_handles: Mutex<FxHashMap<EndpointId, RemoteStateHandle>>,
+    actor_senders: Mutex<FxHashMap<EndpointId, GuardedSender<RemoteStateMessage>>>,
     /// The mapping between [`EndpointId`]s and [`EndpointIdMappedAddr`]s.
     pub(super) endpoint_mapped_addrs: AddrMap<EndpointId, EndpointIdMappedAddr>,
     /// The mapping between endpoints via a relay and their [`RelayMappedAddr`]s.
@@ -62,6 +64,7 @@ pub(crate) struct RemoteMap {
     disco: DiscoState,
     sender: TransportsSender,
     discovery: ConcurrentDiscovery,
+    actor_tasks: Mutex<JoinSet<Vec<RemoteStateMessage>>>,
 }
 
 impl RemoteMap {
@@ -76,7 +79,7 @@ impl RemoteMap {
         discovery: ConcurrentDiscovery,
     ) -> Self {
         Self {
-            actor_handles: Mutex::new(FxHashMap::default()),
+            actor_senders: Mutex::new(FxHashMap::default()),
             endpoint_mapped_addrs: Default::default(),
             relay_mapped_addrs: Default::default(),
             local_endpoint_id,
@@ -85,6 +88,7 @@ impl RemoteMap {
             disco,
             sender,
             discovery,
+            actor_tasks: Default::default(),
         }
     }
 
@@ -97,8 +101,19 @@ impl RemoteMap {
     /// This should be called periodically to remove handles to endpoint state actors
     /// that have shutdown after their idle timeout expired.
     pub(super) fn remove_closed_remote_state_actors(&self) {
-        let mut handles = self.actor_handles.lock().expect("poisoned");
-        handles.retain(|_eid, handle| !handle.sender.is_closed())
+        let mut senders = self.actor_senders.lock().expect("poisoned");
+        senders.retain(|_eid, sender| !sender.is_closed());
+        while let Some(result) = self.actor_tasks.lock().expect("poisoned").try_join_next() {
+            match result {
+                Ok(leftover_msgs) => debug!(?leftover_msgs, "TODO: handle leftover messages"),
+                Err(err) => {
+                    if let Ok(panic) = err.try_into_panic() {
+                        error!("RemoteStateActor panicked.");
+                        std::panic::resume_unwind(panic);
+                    }
+                }
+            }
+        }
     }
 
     /// Returns the sender for the [`RemoteStateActor`].
@@ -107,10 +122,10 @@ impl RemoteMap {
     ///
     /// [`RemoteStateActor`]: remote_state::RemoteStateActor
     pub(super) fn remote_state_actor(&self, eid: EndpointId) -> mpsc::Sender<RemoteStateMessage> {
-        let mut handles = self.actor_handles.lock().expect("poisoned");
+        let mut handles = self.actor_senders.lock().expect("poisoned");
         match handles.entry(eid) {
             hash_map::Entry::Occupied(mut entry) => {
-                if let Some(sender) = entry.get().sender.get() {
+                if let Some(sender) = entry.get().get() {
                     sender
                 } else {
                     // The actor is dead: Start a new actor.
@@ -133,10 +148,13 @@ impl RemoteMap {
     fn start_remote_state_actor(
         &self,
         eid: EndpointId,
-    ) -> (RemoteStateHandle, mpsc::Sender<RemoteStateMessage>) {
+    ) -> (
+        GuardedSender<RemoteStateMessage>,
+        mpsc::Sender<RemoteStateMessage>,
+    ) {
         // Ensure there is a RemoteMappedAddr for this EndpointId.
         self.endpoint_mapped_addrs.get(&eid);
-        let handle = RemoteStateActor::new(
+        let sender = RemoteStateActor::new(
             eid,
             self.local_endpoint_id,
             self.local_direct_addrs.clone(),
@@ -146,9 +164,9 @@ impl RemoteMap {
             self.sender.clone(),
             self.discovery.clone(),
         )
-        .start();
-        let sender = handle.sender.get().expect("just created");
-        (handle, sender)
+        .start(self.actor_tasks.lock().expect("poisoned").deref_mut());
+        let tx = sender.get().expect("just created");
+        (sender, tx)
     }
 
     pub(super) fn handle_ping(&self, msg: disco::Ping, sender: EndpointId, src: transports::Addr) {

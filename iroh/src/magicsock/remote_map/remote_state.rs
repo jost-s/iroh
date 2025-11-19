@@ -11,7 +11,7 @@ use n0_error::StackResultExt;
 use n0_future::{
     Either, FuturesUnordered, MergeUnbounded, Stream, StreamExt,
     boxed::BoxStream,
-    task::{self, AbortOnDropHandle},
+    task::JoinSet,
     time::{self, Duration, Instant},
 };
 use n0_watcher::{Watchable, Watcher};
@@ -42,7 +42,7 @@ use crate::{
     util::MaybeFuture,
 };
 
-mod guarded_channel;
+pub(crate) mod guarded_channel;
 mod path_state;
 
 // TODO: use this
@@ -211,7 +211,10 @@ impl RemoteStateActor {
         }
     }
 
-    pub(super) fn start(self) -> RemoteStateHandle {
+    pub(super) fn start(
+        self,
+        tasks: &mut JoinSet<Vec<RemoteStateMessage>>,
+    ) -> GuardedSender<RemoteStateMessage> {
         let (tx, rx) = guarded_channel(16);
         let me = self.local_endpoint_id;
         let endpoint_id = self.endpoint_id;
@@ -221,16 +224,13 @@ impl RemoteStateActor {
         // we don't explicitly set a span we get the spans from whatever call happens to
         // first create the actor, which is often very confusing as it then keeps those
         // spans for all logging of the actor.
-        let task = task::spawn(self.run(rx).instrument(info_span!(
+        tasks.spawn(self.run(rx).instrument(info_span!(
             parent: None,
             "RemoteStateActor",
             me = %me.fmt_short(),
             remote = %endpoint_id.fmt_short(),
         )));
-        RemoteStateHandle {
-            sender: tx,
-            _task: AbortOnDropHandle::new(task),
-        }
+        tx
     }
 
     /// Runs the main loop of the actor.
@@ -238,11 +238,14 @@ impl RemoteStateActor {
     /// Note that the actor uses async handlers for tasks from the main loop.  The actor is
     /// not processing items from the inbox while waiting on any async calls.  So some
     /// discipline is needed to not turn pending for a long time.
-    async fn run(mut self, mut inbox: GuardedReceiver<RemoteStateMessage>) {
+    async fn run(
+        mut self,
+        mut inbox: GuardedReceiver<RemoteStateMessage>,
+    ) -> Vec<RemoteStateMessage> {
         trace!("actor started");
         let idle_timeout = time::sleep(ACTOR_MAX_IDLE_TIMEOUT);
         n0_future::pin!(idle_timeout);
-        loop {
+        let leftover_msgs = loop {
             let scheduled_path_open = match self.scheduled_open_path {
                 Some(when) => MaybeFuture::Some(time::sleep_until(when)),
                 None => MaybeFuture::None,
@@ -263,7 +266,7 @@ impl RemoteStateActor {
                 msg = inbox.recv() => {
                     match msg {
                         Some(msg) => self.handle_message(msg).await,
-                        None => break,
+                        None => break vec![],
                     }
                 }
                 Some((id, evt)) = self.path_events.next() => {
@@ -303,15 +306,16 @@ impl RemoteStateActor {
                 _ = &mut idle_timeout => {
                     if self.connections.is_empty() && inbox.close_if_idle() {
                         trace!("idle timeout expired and still idle: terminate actor");
-                        break;
+                        break vec![];
                     } else {
                         // Seems like we weren't really idle, so we reset
                         idle_timeout.as_mut().reset(Instant::now() + ACTOR_MAX_IDLE_TIMEOUT);
                     }
                 }
             }
-        }
+        };
         trace!("actor terminating");
+        leftover_msgs
     }
 
     /// Handles an actor message.
@@ -1105,21 +1109,6 @@ pub(crate) enum RemoteStateMessage {
     /// TODO: This is more of a placeholder message currently.  Check MagicSock::latency.
     #[debug("Latency(..)")]
     Latency(oneshot::Sender<Option<Duration>>),
-}
-
-/// A handle to a [`RemoteStateActor`].
-///
-/// Dropping this will stop the actor. The actor will also stop after an idle timeout
-/// if it has no connections, an empty inbox, and no other senders than the one stored
-/// in the endpoint map exist.
-#[derive(Debug)]
-pub(super) struct RemoteStateHandle {
-    /// Sender for the channel into the [`RemoteStateActor`].
-    ///
-    /// This is a [`GuardedSender`], from which we can get a sender but only if the receiver
-    /// hasn't been closed.
-    pub(super) sender: GuardedSender<RemoteStateMessage>,
-    _task: AbortOnDropHandle<()>,
 }
 
 /// Information about a holepunch attempt.
