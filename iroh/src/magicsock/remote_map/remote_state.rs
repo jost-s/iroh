@@ -246,7 +246,7 @@ impl RemoteStateActor {
         }
         let idle_timeout = time::sleep(ACTOR_MAX_IDLE_TIMEOUT);
         n0_future::pin!(idle_timeout);
-        let leftover_msgs = loop {
+        loop {
             let scheduled_path_open = match self.scheduled_open_path {
                 Some(when) => MaybeFuture::Some(time::sleep_until(when)),
                 None => MaybeFuture::None,
@@ -267,7 +267,7 @@ impl RemoteStateActor {
                 msg = inbox.recv() => {
                     match msg {
                         Some(msg) => self.handle_message(msg).await,
-                        None => break vec![],
+                        None => break,
                     }
                 }
                 Some((id, evt)) = self.path_events.next() => {
@@ -307,19 +307,20 @@ impl RemoteStateActor {
                 _ = &mut idle_timeout => {
                     if self.connections.is_empty() && inbox.is_empty() {
                         trace!("idle timeout expired and still idle: terminate actor");
-                        inbox.close();
-                        // There might be a race between checking `inbox.is_empty()` and `inbox.close()`,
-                        // so we pull out all messages that are left over.
-                        let mut leftover_msgs = Vec::with_capacity(inbox.len());
-                        inbox.recv_many(&mut leftover_msgs, inbox.len()).await;
-                        break leftover_msgs;
+                        break;
                     } else {
                         // Seems like we weren't really idle, so we reset
                         idle_timeout.as_mut().reset(Instant::now() + ACTOR_MAX_IDLE_TIMEOUT);
                     }
                 }
             }
-        };
+        }
+
+        inbox.close();
+        // There might be a race between checking `inbox.is_empty()` and `inbox.close()`,
+        // so we pull out all messages that are left over.
+        let mut leftover_msgs = Vec::with_capacity(inbox.len());
+        inbox.recv_many(&mut leftover_msgs, inbox.len()).await;
 
         trace!("actor terminating");
         (self.endpoint_id, leftover_msgs)
