@@ -20,12 +20,11 @@ use quinn_proto::{PathError, PathEvent, PathId, PathStatus};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use sync_wrapper::SyncStream;
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{Instrument, Level, debug, error, event, info_span, instrument, trace, warn};
 
 use self::path_state::RemotePathState;
-use tokio::sync::{mpsc, oneshot};
-
 use super::Source;
 use crate::{
     disco::{self},
