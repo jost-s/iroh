@@ -64,7 +64,7 @@ pub(crate) struct RemoteMap {
     disco: DiscoState,
     sender: TransportsSender,
     discovery: ConcurrentDiscovery,
-    actor_tasks: Mutex<JoinSet<Vec<RemoteStateMessage>>>,
+    actor_tasks: Mutex<JoinSet<(EndpointId, Vec<RemoteStateMessage>)>>,
 }
 
 impl RemoteMap {
@@ -105,7 +105,22 @@ impl RemoteMap {
         senders.retain(|_eid, sender| !sender.is_closed());
         while let Some(result) = self.actor_tasks.lock().expect("poisoned").try_join_next() {
             match result {
-                Ok(leftover_msgs) => debug!(?leftover_msgs, "TODO: handle leftover messages"),
+                Ok((eid, leftover_msgs)) => {
+                    let entry = senders.entry(eid);
+                    if leftover_msgs.is_empty() {
+                        match entry {
+                            hash_map::Entry::Occupied(occupied_entry) => occupied_entry.remove(),
+                            hash_map::Entry::Vacant(_) => {
+                                panic!("this should be impossible TODO(matheus23)");
+                            }
+                        };
+                    } else {
+                        // The remote actor got messages while it was closing, so we're restarting
+                        debug!(%eid, "restarting terminated remote state actor: messages received during shutdown");
+                        let sender = self.start_remote_state_actor(eid, leftover_msgs);
+                        entry.insert_entry(sender);
+                    }
+                }
                 Err(err) => {
                     if let Ok(panic) = err.try_into_panic() {
                         error!("RemoteStateActor panicked.");
@@ -126,7 +141,7 @@ impl RemoteMap {
         match handles.entry(eid) {
             hash_map::Entry::Occupied(entry) => entry.get().clone(),
             hash_map::Entry::Vacant(entry) => {
-                let sender = self.start_remote_state_actor(eid);
+                let sender = self.start_remote_state_actor(eid, vec![]);
                 entry.insert(sender.clone());
                 sender
             }
@@ -136,7 +151,11 @@ impl RemoteMap {
     /// Starts a new remote state actor and returns a handle and a sender.
     ///
     /// The handle is not inserted into the endpoint map, this must be done by the caller of this function.
-    fn start_remote_state_actor(&self, eid: EndpointId) -> mpsc::Sender<RemoteStateMessage> {
+    fn start_remote_state_actor(
+        &self,
+        eid: EndpointId,
+        initial_msgs: Vec<RemoteStateMessage>,
+    ) -> mpsc::Sender<RemoteStateMessage> {
         // Ensure there is a RemoteMappedAddr for this EndpointId.
         self.endpoint_mapped_addrs.get(&eid);
         RemoteStateActor::new(
@@ -149,7 +168,10 @@ impl RemoteMap {
             self.sender.clone(),
             self.discovery.clone(),
         )
-        .start(self.actor_tasks.lock().expect("poisoned").deref_mut())
+        .start(
+            initial_msgs,
+            self.actor_tasks.lock().expect("poisoned").deref_mut(),
+        )
     }
 
     pub(super) fn handle_ping(&self, msg: disco::Ping, sender: EndpointId, src: transports::Addr) {
