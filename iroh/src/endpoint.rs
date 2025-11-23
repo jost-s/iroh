@@ -1300,6 +1300,8 @@ mod tests {
     use n0_future::{BufferedStreamExt, StreamExt, stream, time};
     use n0_watcher::Watcher;
     use quinn::ConnectionError;
+    #[cfg(feature = "qlog")]
+    use quinn::Side;
     use rand::SeedableRng;
     use tokio::sync::oneshot;
     use tracing::{Instrument, error_span, info, info_span, instrument};
@@ -1341,9 +1343,16 @@ mod tests {
         let server_secret_key = SecretKey::generate(&mut rng);
         let server_peer_id = server_secret_key.public();
 
+        let start = Instant::now();
         // Wait for the endpoint to be started to make sure it's up before clients try to connect
         let ep = Endpoint::empty_builder(RelayMode::Custom(relay_map.clone()))
             .secret_key(server_secret_key)
+            .transport_config(qlog_config(
+                "endpoint-connect-close",
+                "server",
+                Side::Server,
+                start,
+            )?)
             .alpns(vec![TEST_ALPN.to_vec()])
             .insecure_skip_relay_cert_verify(true)
             .bind()
@@ -1384,6 +1393,12 @@ mod tests {
                 let ep = Endpoint::empty_builder(RelayMode::Custom(relay_map))
                     .alpns(vec![TEST_ALPN.to_vec()])
                     .insecure_skip_relay_cert_verify(true)
+                    .transport_config(qlog_config(
+                        "endpoint-connect-close",
+                        "client",
+                        Side::Client,
+                        start,
+                    )?)
                     .bind()
                     .await?;
                 info!("client connecting");
@@ -2448,5 +2463,47 @@ mod tests {
 
         assert!(dt0 / dt1 < 20.0, "First round: {dt0}s, second round {dt1}s");
         Ok(())
+    }
+
+    #[cfg(not(feature = "qlog"))]
+    fn qlog_config(
+        _group: impl ToString,
+        _name: impl ToString,
+        _vantage_point: Side,
+        _start: Instant,
+    ) -> Result<quinn::TransportConfig> {
+        Ok(quinn::TransportConfig::default())
+    }
+
+    /// We use [`Side`] instead of [`VantagePoint`] here to have a type that is available even without
+    /// the `qlog` feature.
+    #[cfg(feature = "qlog")]
+    fn qlog_config(
+        group: impl ToString,
+        name: impl ToString,
+        vantage_point: Side,
+        start: Instant,
+    ) -> Result<quinn::TransportConfig> {
+        let name = name.to_string();
+        let group = group.to_string();
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("qlog")
+            .join(format!("{group}-{name}.qlog"));
+        std::fs::create_dir_all(path.parent().unwrap())?;
+
+        let mut transport_config = quinn::TransportConfig::default();
+        let mut qlog = quinn::QlogConfig::default();
+        let vantage_point = match vantage_point {
+            Side::Client => quinn_proto::VantagePointType::Client,
+            Side::Server => quinn_proto::VantagePointType::Server,
+        };
+        qlog.vantage_point(vantage_point, Some(name.clone()));
+        qlog.start_time(start);
+        let file = std::fs::File::create(path)?;
+        let writer = std::io::BufWriter::new(file);
+        qlog.writer(Box::new(writer))
+            .title(Some(format!("{group}-{name}")));
+        transport_config.qlog_stream(qlog.into_stream());
+        Ok(transport_config)
     }
 }
