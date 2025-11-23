@@ -22,6 +22,11 @@ pub mod qlog {
     use quinn_proto::{QlogConfig, VantagePointType};
     use std::time::Instant;
 
+    #[cfg(not(feature = "qlog"))]
+    #[derive(Debug)]
+    pub struct QlogFileGroup;
+
+    #[cfg(feature = "qlog")]
     #[derive(Debug)]
     pub struct QlogFileGroup {
         directory: PathBuf,
@@ -43,11 +48,21 @@ pub mod qlog {
 
         /// Creates a new [`QlogFileGroup`] that writes qlog files to the specified directory.
         pub fn new(directory: impl AsRef<Path>, title: impl ToString) -> Self {
-            Self {
+            #[cfg(not(feature = "qlog"))]
+            let this = {
+                let _ = directory;
+                let _ = title;
+                Self
+            };
+
+            #[cfg(feature = "qlog")]
+            let this = Self {
                 title: title.to_string(),
                 directory: directory.as_ref().to_owned(),
                 start: Instant::now(),
-            }
+            };
+
+            this
         }
 
         /// Creates a [`TransportConfig`] that emits qlog files with a client vantage point, if enabled.
@@ -57,7 +72,10 @@ pub mod qlog {
         /// Otherwise, a default transport config is returned.
         pub fn client(&self, name: impl ToString) -> Result<TransportConfig> {
             #[cfg(not(feature = "qlog"))]
-            let config = Default::default();
+            let config = {
+                let _ = name;
+                Default::default();
+            };
 
             #[cfg(feature = "qlog")]
             let config = if std::env::var("IROH_QLOG").ok().as_deref() == Some("1") {
@@ -75,7 +93,10 @@ pub mod qlog {
         /// Otherwise, a default transport config is returned.
         pub fn server(&self, name: impl ToString) -> Result<TransportConfig> {
             #[cfg(not(feature = "qlog"))]
-            let config = Default::default();
+            let config = {
+                let _ = name;
+                Default::default();
+            };
 
             #[cfg(feature = "qlog")]
             let config = if std::env::var("IROH_QLOG").ok().as_deref() == Some("1") {
