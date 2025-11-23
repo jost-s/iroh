@@ -12,6 +12,98 @@ use iroh_relay::{
 };
 use tokio::sync::oneshot;
 
+#[allow(missing_docs)]
+pub mod qlog {
+    use std::path::{Path, PathBuf};
+
+    use n0_error::Result;
+    use quinn::TransportConfig;
+    #[cfg(feature = "qlog")]
+    use quinn_proto::{QlogConfig, VantagePointType};
+    use std::time::Instant;
+
+    #[derive(Debug)]
+    pub struct QlogFileGroup {
+        directory: PathBuf,
+        title: String,
+        start: Instant,
+    }
+
+    impl QlogFileGroup {
+        pub fn new(title: impl ToString) -> Self {
+            let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("qlog");
+            Self::new_in(directory, title)
+        }
+
+        pub fn new_in(directory: impl AsRef<Path>, group_name: impl ToString) -> Self {
+            Self {
+                title: group_name.to_string(),
+                directory: directory.as_ref().to_owned(),
+                start: Instant::now(),
+            }
+        }
+
+        pub fn client(&self, name: impl ToString) -> Result<TransportConfig> {
+            #[cfg(not(feature = "qlog"))]
+            let config = Default::default();
+            #[cfg(feature = "qlog")]
+            let config = self.transport_config(name.to_string(), VantagePointType::Client)?;
+            Ok(config)
+        }
+
+        pub fn server(&self, name: impl ToString) -> Result<TransportConfig> {
+            #[cfg(not(feature = "qlog"))]
+            let config = Default::default();
+            #[cfg(feature = "qlog")]
+            let config = self.transport_config(name.to_string(), VantagePointType::Client)?;
+            Ok(config)
+        }
+
+        #[cfg(feature = "qlog")]
+        pub fn client_config(&self, name: impl ToString) -> Result<QlogConfig> {
+            self.qlog_config(name.to_string(), VantagePointType::Client)
+        }
+
+        #[cfg(feature = "qlog")]
+        pub fn server_config(&self, name: impl ToString) -> Result<QlogConfig> {
+            self.qlog_config(name.to_string(), VantagePointType::Server)
+        }
+
+        #[cfg(feature = "qlog")]
+        pub fn transport_config(
+            &self,
+            name: String,
+            vantage_point: VantagePointType,
+        ) -> Result<TransportConfig> {
+            let mut transport_config = TransportConfig::default();
+            let qlog = self.qlog_config(name, vantage_point)?;
+            transport_config.qlog_stream(qlog.into_stream());
+            Ok(transport_config)
+        }
+
+        #[cfg(feature = "qlog")]
+        pub fn qlog_config(
+            &self,
+            name: String,
+            vantage_point: VantagePointType,
+        ) -> Result<QlogConfig> {
+            let full_name = format!("{}.{}", self.title, name);
+            let file_name = format!("{full_name}.qlog");
+            let file_path = self.directory.join(file_name);
+            std::fs::create_dir_all(file_path.parent().unwrap())?;
+            let file = std::fs::File::create(file_path)?;
+            let writer = std::io::BufWriter::new(file);
+
+            let mut qlog = quinn::QlogConfig::default();
+            qlog.vantage_point(vantage_point, Some(name.clone()))
+                .start_time(self.start)
+                .writer(Box::new(writer))
+                .title(Some(full_name));
+            Ok(qlog)
+        }
+    }
+}
+
 /// A drop guard to clean up test infrastructure.
 ///
 /// After dropping the test infrastructure will asynchronously shutdown and release its

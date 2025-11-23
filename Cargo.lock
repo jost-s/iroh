@@ -1838,7 +1838,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2266,11 +2266,7 @@ dependencies = [
 [[package]]
 name = "iroh-quinn"
 version = "0.14.0"
-<<<<<<< HEAD
 source = "git+https://github.com/n0-computer/quinn?branch=Frando%2Fqlog-qnt#b9e83dc0fa72efbdd9d6c86cc4ef7705e96a7ed3"
-=======
-source = "git+https://github.com/n0-computer/quinn?branch=Frando%2Fqlog#bcfd26474935268c4c9bf2dffe439b3f777e9f0d"
->>>>>>> e572fcdc5a (fixup)
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -2279,7 +2275,7 @@ dependencies = [
  "pin-project-lite",
  "rustc-hash",
  "rustls",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
@@ -2290,11 +2286,7 @@ dependencies = [
 [[package]]
 name = "iroh-quinn-proto"
 version = "0.13.0"
-<<<<<<< HEAD
 source = "git+https://github.com/n0-computer/quinn?branch=Frando%2Fqlog-qnt#b9e83dc0fa72efbdd9d6c86cc4ef7705e96a7ed3"
-=======
-source = "git+https://github.com/n0-computer/quinn?branch=Frando%2Fqlog#bcfd26474935268c4c9bf2dffe439b3f777e9f0d"
->>>>>>> e572fcdc5a (fixup)
 dependencies = [
  "bytes",
  "fastbloom",
@@ -2318,16 +2310,12 @@ dependencies = [
 [[package]]
 name = "iroh-quinn-udp"
 version = "0.5.12"
-<<<<<<< HEAD
 source = "git+https://github.com/n0-computer/quinn?branch=Frando%2Fqlog-qnt#b9e83dc0fa72efbdd9d6c86cc4ef7705e96a7ed3"
-=======
-source = "git+https://github.com/n0-computer/quinn?branch=Frando%2Fqlog#bcfd26474935268c4c9bf2dffe439b3f777e9f0d"
->>>>>>> e572fcdc5a (fixup)
 dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.59.0",
 ]
@@ -3314,7 +3302,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -3351,7 +3339,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.59.0",
 ]
@@ -3744,13 +3732,8 @@ dependencies = [
  "rustls-webpki",
  "security-framework",
  "security-framework-sys",
-<<<<<<< HEAD
  "webpki-root-certs 1.0.4",
- "windows-sys 0.61.2",
-=======
- "webpki-root-certs 1.0.3",
  "windows-sys 0.59.0",
->>>>>>> e572fcdc5a (fixup)
 ]
 
 [[package]]
