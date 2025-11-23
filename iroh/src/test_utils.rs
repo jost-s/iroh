@@ -30,47 +30,76 @@ pub mod qlog {
     }
 
     impl QlogFileGroup {
-        pub fn new(title: impl ToString) -> Self {
+        /// Creates a new [`QlogFileGroup] that is only enabled if feature flags and environment variables match.
+        ///
+        /// The [`QlogFileGroup] can be used independent of feature flags, but it will only emit qlog files
+        /// if the "qlog" feature is enabled and the environment variable IROH_QLOG is set to 1.
+        ///
+        /// qlog files will be written to `CARGO_MANIFEST_DIR/qlog`.
+        pub fn from_env(title: impl ToString) -> Self {
             let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("qlog");
-            Self::new_in(directory, title)
+            Self::new(directory, title)
         }
 
-        pub fn new_in(directory: impl AsRef<Path>, group_name: impl ToString) -> Self {
+        /// Creates a new [`QlogFileGroup`] that writes qlog files to the specified directory.
+        pub fn new(directory: impl AsRef<Path>, title: impl ToString) -> Self {
             Self {
-                title: group_name.to_string(),
+                title: title.to_string(),
                 directory: directory.as_ref().to_owned(),
                 start: Instant::now(),
             }
         }
 
+        /// Creates a [`TransportConfig`] that emits qlog files with a client vantage point, if enabled.
+        ///
+        /// If the "qlog" feature is enabled, and the environment varialbe IROH_QLOG is set to "1",
+        /// returns transport config that writes qlog configs to the configured output directory.
+        /// Otherwise, a default transport config is returned.
         pub fn client(&self, name: impl ToString) -> Result<TransportConfig> {
             #[cfg(not(feature = "qlog"))]
             let config = Default::default();
+
             #[cfg(feature = "qlog")]
-            let config = self.transport_config(name.to_string(), VantagePointType::Client)?;
+            let config = if std::env::var("IROH_QLOG").ok().as_deref() == Some("1") {
+                self.transport_config(name.to_string(), VantagePointType::Client)?
+            } else {
+                Default::default()
+            };
             Ok(config)
         }
 
+        /// Creates a [`TransportConfig`] that emits qlog files with a server vantage point, if enabled.
+        ///
+        /// If the "qlog" feature is enabled, and the environment varialbe IROH_QLOG is set to "1",
+        /// returns transport config that writes qlog configs to the configured output directory.
+        /// Otherwise, a default transport config is returned.
         pub fn server(&self, name: impl ToString) -> Result<TransportConfig> {
             #[cfg(not(feature = "qlog"))]
             let config = Default::default();
+
             #[cfg(feature = "qlog")]
-            let config = self.transport_config(name.to_string(), VantagePointType::Client)?;
+            let config = if std::env::var("IROH_QLOG").ok().as_deref() == Some("1") {
+                self.transport_config(name.to_string(), VantagePointType::Server)?
+            } else {
+                Default::default()
+            };
             Ok(config)
         }
 
+        /// Creates a qlog config with a client vantage point.
         #[cfg(feature = "qlog")]
         pub fn client_config(&self, name: impl ToString) -> Result<QlogConfig> {
             self.qlog_config(name.to_string(), VantagePointType::Client)
         }
 
+        /// Creates a qlog config with a server vantage point.
         #[cfg(feature = "qlog")]
         pub fn server_config(&self, name: impl ToString) -> Result<QlogConfig> {
             self.qlog_config(name.to_string(), VantagePointType::Server)
         }
 
         #[cfg(feature = "qlog")]
-        pub fn transport_config(
+        fn transport_config(
             &self,
             name: String,
             vantage_point: VantagePointType,
@@ -82,11 +111,7 @@ pub mod qlog {
         }
 
         #[cfg(feature = "qlog")]
-        pub fn qlog_config(
-            &self,
-            name: String,
-            vantage_point: VantagePointType,
-        ) -> Result<QlogConfig> {
+        fn qlog_config(&self, name: String, vantage_point: VantagePointType) -> Result<QlogConfig> {
             let full_name = format!("{}.{}", self.title, name);
             let file_name = format!("{full_name}.qlog");
             let file_path = self.directory.join(file_name);

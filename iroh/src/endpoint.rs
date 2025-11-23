@@ -1341,7 +1341,7 @@ mod tests {
         let server_secret_key = SecretKey::generate(&mut rng);
         let server_peer_id = server_secret_key.public();
 
-        let qlog = QlogFileGroup::new("endpoint_connect_close");
+        let qlog = QlogFileGroup::from_env("endpoint_connect_close");
 
         // Wait for the endpoint to be started to make sure it's up before clients try to connect
         let ep = Endpoint::empty_builder(RelayMode::Custom(relay_map.clone()))
