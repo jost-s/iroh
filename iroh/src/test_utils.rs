@@ -38,7 +38,7 @@ pub mod qlog {
         /// Creates a new [`QlogFileGroup] that is only enabled if feature flags and environment variables match.
         ///
         /// The [`QlogFileGroup] can be used independent of feature flags, but it will only emit qlog files
-        /// if the "qlog" feature is enabled and the environment variable IROH_QLOG is set to 1.
+        /// if the "qlog" feature is enabled and the environment variable IROH_TEST_QLOG is set to 1.
         ///
         /// qlog files will be written to `CARGO_MANIFEST_DIR/qlog`.
         pub fn from_env(title: impl ToString) -> Self {
@@ -67,7 +67,7 @@ pub mod qlog {
 
         /// Creates a [`TransportConfig`] that emits qlog files with a client vantage point, if enabled.
         ///
-        /// If the "qlog" feature is enabled, and the environment varialbe IROH_QLOG is set to "1",
+        /// If the "qlog" feature is enabled, and the environment varialbe IROH_TEST_QLOG is set to "1",
         /// returns transport config that writes qlog configs to the configured output directory.
         /// Otherwise, a default transport config is returned.
         pub fn client(&self, name: impl ToString) -> Result<TransportConfig> {
@@ -78,7 +78,7 @@ pub mod qlog {
             };
 
             #[cfg(feature = "qlog")]
-            let config = if std::env::var("IROH_QLOG").ok().as_deref() == Some("1") {
+            let config = if std::env::var("IROH_TEST_QLOG").ok().as_deref() == Some("1") {
                 self.transport_config(name.to_string(), VantagePointType::Client)?
             } else {
                 Default::default()
@@ -88,7 +88,7 @@ pub mod qlog {
 
         /// Creates a [`TransportConfig`] that emits qlog files with a server vantage point, if enabled.
         ///
-        /// If the "qlog" feature is enabled, and the environment varialbe IROH_QLOG is set to "1",
+        /// If the "qlog" feature is enabled, and the environment varialbe IROH_TEST_QLOG is set to "1",
         /// returns transport config that writes qlog configs to the configured output directory.
         /// Otherwise, a default transport config is returned.
         pub fn server(&self, name: impl ToString) -> Result<TransportConfig> {
@@ -99,7 +99,7 @@ pub mod qlog {
             };
 
             #[cfg(feature = "qlog")]
-            let config = if std::env::var("IROH_QLOG").ok().as_deref() == Some("1") {
+            let config = if std::env::var("IROH_TEST_QLOG").ok().as_deref() == Some("1") {
                 self.transport_config(name.to_string(), VantagePointType::Server)?
             } else {
                 Default::default()
