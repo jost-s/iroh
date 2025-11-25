@@ -30,7 +30,6 @@ impl QlogFileGroup {
     ///
     /// The [`QlogFileGroup] can be used independent of feature flags, but it will only emit qlog files
     /// if the "qlog" feature is enabled and the environment variable IROH_TEST_QLOG is set to 1.
-    ///
     pub fn from_env(title: impl ToString) -> Self {
         let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("qlog");
         Self::new(directory, title)

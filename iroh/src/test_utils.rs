@@ -11,8 +11,7 @@ use iroh_relay::{
 };
 use tokio::sync::oneshot;
 
-pub use self::dns_and_pkarr_servers::DnsPkarrServer;
-pub use self::qlog::QlogFileGroup;
+pub use self::{dns_and_pkarr_servers::DnsPkarrServer, qlog::QlogFileGroup};
 
 mod qlog;
 
