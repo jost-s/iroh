@@ -1311,7 +1311,7 @@ mod tests {
         discovery::static_provider::StaticProvider,
         endpoint::{ConnectOptions, Connection},
         protocol::{AcceptError, ProtocolHandler, Router},
-        test_utils::{qlog::QlogFileGroup, run_relay_server, run_relay_server_with},
+        test_utils::{QlogFileGroup, run_relay_server, run_relay_server_with},
     };
 
     const TEST_ALPN: &[u8] = b"n0/iroh/test";
